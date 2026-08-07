@@ -76,28 +76,17 @@ func scanDirInto(dir string, relPrefix string, fileMap map[string][]byte) error 
 	return nil
 }
 
-// ScanEmbedFS 跟 ScanDir 干的是同一件事，只是文件从一个 //go:embed 进来的 embed.FS 里读，
-// 运行时一个文件都不碰 —— 模版包编译进二进制，跟着程序走。
+// scanEmbedFS 是 NewFromEmbedFS 内部那一步：把 embed.FS 里 dir 底下的模版文件读成
+// 「相对路径 -> 文件内容」，扫出来跟 ScanDir 一模一样。
 //
-// dir 是模版包在 fsys 里的哪个子目录，路径按 embed.FS 那一套：分隔符固定 /，不许 ./、../、
-// 开头的 /、结尾的 /，fsys 的根目录写 "."。
-//
-//	//go:embed prompt
-//	var promptFS embed.FS
-//	fileMap, err := hgmPromptTpl.ScanEmbedFS(promptFS, "prompt")
-//
-// dir 这个参数是必须的，不是图方便：上面那个 //go:embed 收进来的路径带着 prompt/ 这一层，
-// dir 传 "." 的话扫出来的 key 就是 prompt/找bug.ep.txt。key 就是 include 里写的那个路径
-// （路径永远是模版包根目录向下的相对路径），多这一层前缀等于模版里所有 include 都得跟着改，
-// 而且换个 embed 写法又得改回来。dir 传 "prompt" 才是对的，扫出来跟 ScanDir 一模一样。
+// 不导出：ScanDir 导出是因为调用方可能想先拿到 fileMap 自己动手（改几个字节、拼两个包再
+// NewFromMap）；embed 这条路没这个需求 —— 字节是编译期定死的，能动的只有 NewFromEmbedFS
+// 那两个参数。真需要了再导出不迟，反过来收不回来。
 //
 // 收哪些文件跟 ScanDir 完全一致。ScanDir 里那套 symlink 解引用、非普通文件报错在这里全都不需要：
 // embed.FS 是编译期收进来的一堆字节，里面只可能有目录和普通文件 —— 没有 symlink，没有断链，
 // 也没有设备文件。
-//
-// 另外 //go:embed 自己有条规矩跟本引擎无关但会咬人: //go:embed prompt 这种写法收不到以 .
-// 或 _ 开头的文件和目录。模版文件别那么起名，真要收就写 //go:embed prompt/*。
-func ScanEmbedFS(fsys embed.FS, dir string) (map[string][]byte, error) {
+func scanEmbedFS(fsys embed.FS, dir string) (map[string][]byte, error) {
 	if !fs.ValidPath(dir) {
 		return nil, fmt.Errorf("模版目录 %q 不是合法的 embed.FS 路径: 分隔符固定 /，不支持 ./、../、开头的 /、结尾的 /，根目录写 \".\"", dir)
 	}

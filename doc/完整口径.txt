@@ -309,8 +309,7 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   的那一类, panic 反而暴露得更早。
 
   另外这几个也是导出的:
-  fileMap, err := hgmPromptTpl.ScanDir(dir)        // NewFromDir 内部就是它, 规矩见第八节
-  fileMap, err := hgmPromptTpl.ScanEmbedFS(promptFS, dir)   // NewFromEmbedFS 内部就是它, 规矩见八之二
+  fileMap, err := hgmPromptTpl.ScanDir(dir)   // NewFromDir 内部就是它, 规矩见第八节
   hgmPromptTpl.EpSuffix                       // ".ep.txt"
   hgmPromptTpl.PartSuffix                     // ".part.txt"
   hgmPromptTpl.RawSuffix                      // ".raw.txt"
@@ -453,11 +452,10 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   引擎不额外做环检测, 靠这个。
 
 
-八之二. ScanEmbedFS 扫 embed.FS 的规矩
---------------------------------------
+八之二. NewFromEmbedFS 扫 embed.FS 的规矩
+-----------------------------------------
 
-  ScanEmbedFS(fsys, dir) 跟 ScanDir 干的是同一件事, 只是文件从一个 //go:embed 进来的
-  embed.FS 里读, 运行时一个文件都不碰。NewFromEmbedFS 内部就是它。
+  NewFromEmbedFS 内部那一步扫的是 //go:embed 进来的 embed.FS, 运行时一个文件都不碰。
   收哪些文件、扫出来的 key 长什么样, 跟 ScanDir 完全一致。
 
   dir 是模版包在 fsys 里的哪个子目录, 路径按 embed.FS 那一套: 分隔符固定 /, 不许 ./、../、
@@ -467,6 +465,10 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   第八节那套 symlink 规矩在这里一条都不适用, 也不需要: embed.FS 是编译期收进来的一堆字节,
   里面只可能有目录和普通文件 —— 没有 symlink, 没有断链, 也没有设备文件。所以这条路直接信
   目录项自带的类型, 不像 ScanDir 那样还要 stat 一次去解引用。
+
+  跟 ScanDir 不同, 这一步没有导出的版本(没有 ScanEmbedFS): ScanDir 导出是因为调用方可能
+  想先拿到 fileMap 自己动手(改几个字节、拼两个包再 NewFromMap), embed 这条路没这个需求 ——
+  字节是编译期定死的, 能动的只有 NewFromEmbedFS 那两个参数。真需要了再导出不迟。
 
 
 九. 刻意不做的事

@@ -103,10 +103,20 @@ func NewFromDir(dir string) (*Tpl, error) {
 // 跟进程的当前工作目录有关（NewFromDir("example/prompt") 换个目录起进程就找不着了，
 // //go:embed 的路径是相对源文件的，编译期就定死）。代价是改提示词得重新编译。
 //
-// dir 是模版包在 fsys 里的哪个子目录，规矩和「为什么这个参数少不了」见 ScanEmbedFS。
+// dir 是模版包在 fsys 里的哪个子目录，路径按 embed.FS 那一套：分隔符固定 /，不许 ./、../、
+// 开头的 /、结尾的 /，fsys 的根目录写 "."，不合法当场报错。
+//
+// dir 这个参数是必须的，不是图方便：上面那个 //go:embed 收进来的路径带着 prompt/ 这一层，
+// dir 传 "." 的话包里的文件名就成了 prompt/找bug.ep.txt。而文件名就是 include 里写的那个路径
+// （永远是模版包根目录向下的相对路径），多这一层前缀等于模版里所有 include 全对不上 ——
+// 报出来是「include 的目标文件不存在」，还得从那儿反查回来。传 "prompt" 才对。
+//
+// 另外 //go:embed 自己有条规矩跟本引擎无关但会咬人：//go:embed prompt 这种写法收不到以 .
+// 或 _ 开头的文件和目录。模版文件别那么起名，真要收就写 //go:embed prompt/*。
+//
 // 建包检查照样在这一步全跑完，跟 NewFromDir 一个字都不差。
 func NewFromEmbedFS(fsys embed.FS, dir string) (*Tpl, error) {
-	fileMap, err := ScanEmbedFS(fsys, dir)
+	fileMap, err := scanEmbedFS(fsys, dir)
 	if err != nil {
 		return nil, err
 	}

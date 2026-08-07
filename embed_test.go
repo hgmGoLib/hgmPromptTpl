@@ -55,9 +55,9 @@ func TestNewFromEmbedFSSameAsNewFromDir(t *testing.T) {
 }
 
 func TestScanEmbedFSSameAsScanDir(t *testing.T) {
-	fromEmbed, err := ScanEmbedFS(examplePromptFS, "example/prompt")
+	fromEmbed, err := scanEmbedFS(examplePromptFS, "example/prompt")
 	if err != nil {
-		t.Fatalf("ScanEmbedFS 失败: %v", err)
+		t.Fatalf("scanEmbedFS 失败: %v", err)
 	}
 	fromDir, err := ScanDir("example/prompt")
 	if err != nil {
@@ -66,7 +66,7 @@ func TestScanEmbedFSSameAsScanDir(t *testing.T) {
 	gotPathList := strings.Join(getSortedKeyList(fromEmbed), " ")
 	wantPathList := strings.Join(getSortedKeyList(fromDir), " ")
 	if gotPathList != wantPathList {
-		t.Fatalf("扫出来的文件名单跟 ScanDir 不一样\nScanEmbedFS: %s\nScanDir    : %s", gotPathList, wantPathList)
+		t.Fatalf("扫出来的文件名单跟 ScanDir 不一样\nscanEmbedFS: %s\nScanDir    : %s", gotPathList, wantPathList)
 	}
 	// 后缀不在收录范围的文件，embed 收进来了但扫描不该收。
 	if _, ok := fromEmbed["note.md"]; ok {
@@ -82,9 +82,9 @@ func TestScanEmbedFSSameAsScanDir(t *testing.T) {
 // dir 传错那一层的后果：key 会多带一层前缀，于是模版里所有 include 都对不上。
 // 这个用例钉的是「dir 这个参数不是摆设」。
 func TestScanEmbedFSWrongDirGivesPrefixedKey(t *testing.T) {
-	fileMap, err := ScanEmbedFS(examplePromptFS, ".")
+	fileMap, err := scanEmbedFS(examplePromptFS, ".")
 	if err != nil {
-		t.Fatalf("ScanEmbedFS 失败: %v", err)
+		t.Fatalf("scanEmbedFS 失败: %v", err)
 	}
 	if _, ok := fileMap["example/prompt/找bug.ep.txt"]; !ok {
 		t.Fatalf("dir 传 \".\" 时 key 该带全前缀，实际扫出来: %s", strings.Join(getSortedKeyList(fileMap), " "))
@@ -112,7 +112,7 @@ func TestScanEmbedFSBadDir(t *testing.T) {
 		{"example/没有这个目录", "扫描模版目录"},
 	}
 	for _, oneCase := range caseList {
-		_, err := ScanEmbedFS(examplePromptFS, oneCase.dir)
+		_, err := scanEmbedFS(examplePromptFS, oneCase.dir)
 		if err == nil {
 			t.Fatalf("dir=%q 居然扫成功了", oneCase.dir)
 		}
