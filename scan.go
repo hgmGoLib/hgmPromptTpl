@@ -1,6 +1,7 @@
 package hgmPromptTpl
 
 import (
+	"embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -75,39 +76,40 @@ func scanDirInto(dir string, relPrefix string, fileMap map[string][]byte) error 
 	return nil
 }
 
-// ScanFS 跟 ScanDir 干的是同一件事，只是文件从一个 fs.FS 里读，不碰进程的当前工作目录。
-// 最常见的来源是 embed.FS —— 模版包编译进二进制，跟着程序走。
+// ScanEmbedFS 跟 ScanDir 干的是同一件事，只是文件从一个 //go:embed 进来的 embed.FS 里读，
+// 运行时一个文件都不碰 —— 模版包编译进二进制，跟着程序走。
 //
-// dir 是模版包在 fsys 里的哪个子目录，路径按 fs.FS 那一套：分隔符固定 /，不许 ./、../、
-// 开头的 /，fsys 的根目录写 "."。
+// dir 是模版包在 fsys 里的哪个子目录，路径按 embed.FS 那一套：分隔符固定 /，不许 ./、../、
+// 开头的 /、结尾的 /，fsys 的根目录写 "."。
 //
 //	//go:embed prompt
 //	var promptFS embed.FS
-//	fileMap, err := hgmPromptTpl.ScanFS(promptFS, "prompt")
+//	fileMap, err := hgmPromptTpl.ScanEmbedFS(promptFS, "prompt")
 //
 // dir 这个参数是必须的，不是图方便：上面那个 //go:embed 收进来的路径带着 prompt/ 这一层，
 // dir 传 "." 的话扫出来的 key 就是 prompt/找bug.ep.txt。key 就是 include 里写的那个路径
 // （路径永远是模版包根目录向下的相对路径），多这一层前缀等于模版里所有 include 都得跟着改，
 // 而且换个 embed 写法又得改回来。dir 传 "prompt" 才是对的，扫出来跟 ScanDir 一模一样。
 //
-// 收哪些文件、目录项类型怎么判，跟 ScanDir 完全一致。symlink 那套要看 fsys 自己怎么实现：
-// embed.FS 里根本没有 symlink 这回事（编译时就是一堆字节），os.DirFS 则跟 ScanDir 一样会跟随。
+// 收哪些文件跟 ScanDir 完全一致。ScanDir 里那套 symlink 解引用、非普通文件报错在这里全都不需要：
+// embed.FS 是编译期收进来的一堆字节，里面只可能有目录和普通文件 —— 没有 symlink，没有断链，
+// 也没有设备文件。
 //
 // 另外 //go:embed 自己有条规矩跟本引擎无关但会咬人: //go:embed prompt 这种写法收不到以 .
 // 或 _ 开头的文件和目录。模版文件别那么起名，真要收就写 //go:embed prompt/*。
-func ScanFS(fsys fs.FS, dir string) (map[string][]byte, error) {
+func ScanEmbedFS(fsys embed.FS, dir string) (map[string][]byte, error) {
 	if !fs.ValidPath(dir) {
-		return nil, fmt.Errorf("模版目录 %q 不是合法的 fs.FS 路径: 分隔符固定 /，不支持 ./、../、开头的 /、结尾的 /，根目录写 \".\"", dir)
+		return nil, fmt.Errorf("模版目录 %q 不是合法的 embed.FS 路径: 分隔符固定 /，不支持 ./、../、开头的 /、结尾的 /，根目录写 \".\"", dir)
 	}
 	fileMap := map[string][]byte{}
-	if err := scanFsInto(fsys, dir, "", fileMap); err != nil {
+	if err := scanEmbedFsInto(fsys, dir, "", fileMap); err != nil {
 		return nil, err
 	}
 	return fileMap, nil
 }
 
-func scanFsInto(fsys fs.FS, dir string, relPrefix string, fileMap map[string][]byte) error {
-	entryList, err := fs.ReadDir(fsys, dir)
+func scanEmbedFsInto(fsys embed.FS, dir string, relPrefix string, fileMap map[string][]byte) error {
+	entryList, err := fsys.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("扫描模版目录 %s 失败: %w", dir, err)
 	}
@@ -118,31 +120,23 @@ func scanFsInto(fsys fs.FS, dir string, relPrefix string, fileMap map[string][]b
 		if relPrefix != "" {
 			rel = relPrefix + "/" + name
 		}
-		// 走 fs.Stat 而不是 entry.Type()，理由跟 scanDirInto 里那段一样：symlink 要解引用，
-		// 而且要在后缀过滤之前 stat（断链看不出原本指向目录还是文件）。embed.FS 上这两条都不适用，
-		// 但 os.DirFS 上适用，两条路的行为得是一样的。
-		info, err := fs.Stat(fsys, fullPath)
-		if err != nil {
-			return fmt.Errorf("读模版目录项 %s 失败（fs.FS 底下要是 os.DirFS，symlink 断了也会走到这里）: %w", fullPath, err)
-		}
-		switch {
-		case info.IsDir():
-			if err := scanFsInto(fsys, fullPath, rel, fileMap); err != nil {
+		// 这里直接信 entry.IsDir()，不像 scanDirInto 那样再 stat 一次：embed.FS 里只有
+		// 目录和普通文件两种东西，没有 symlink 要解引用，也就没有「断链看不出原本指向什么」
+		// 那个问题。
+		if entry.IsDir() {
+			if err := scanEmbedFsInto(fsys, fullPath, rel, fileMap); err != nil {
 				return err
 			}
-		case info.Mode().IsRegular():
-			if !isTplFileName(name) {
-				continue
-			}
-			content, err := fs.ReadFile(fsys, fullPath)
-			if err != nil {
-				return fmt.Errorf("读模版文件 %s 失败: %w", fullPath, err)
-			}
-			fileMap[rel] = content
-		default:
-			return fmt.Errorf("模版目录项 %s 既不是目录也不是普通文件(mode=%s): 扫描只支持目录、普通文件、指向这两者的 symlink",
-				fullPath, info.Mode())
+			continue
 		}
+		if !isTplFileName(name) {
+			continue
+		}
+		content, err := fsys.ReadFile(fullPath)
+		if err != nil {
+			return fmt.Errorf("读模版文件 %s 失败: %w", fullPath, err)
+		}
+		fileMap[rel] = content
 	}
 	return nil
 }

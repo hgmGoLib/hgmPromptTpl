@@ -45,14 +45,14 @@ text, err := ep.Render(map[string]string{
 })
 ```
 
-这三个都有 `Must` 版（`MustNewFromDir` / `MustNewFromFS` / `MustGetEp` / `MustRender`），出错直接
+这三个都有 `Must` 版（`MustNewFromDir` / `MustNewFromEmbedFS` / `MustGetEp` / `MustRender`），出错直接
 panic，panic 出来的就是那个 error 本身，报错内容一个字不变。参数是代码里写死的就用 Must 版少一层缩进，
 参数来自运行时（命令行、配置、用户给的目录）就用原版自己处理 err。
 
 ## 把模版包编译进二进制
 
-模版包是本程序自己的一部分时，用 `//go:embed` 收进来，走 `NewFromFS`（收的是 `fs.FS`，所以
-`os.DirFS`、测试里的 `fstest.MapFS` 也能直接喂进来）：
+模版包是本程序自己的一部分时，用 `//go:embed` 收进来，走 `NewFromEmbedFS`（收的就是 `embed.FS`
+这个具体类型）：
 
 ```go
 import "embed"
@@ -60,8 +60,8 @@ import "embed"
 //go:embed prompt
 var promptFS embed.FS
 
-// 第二个参数是模版包在这个 fs.FS 里的哪个子目录
-tpl := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
+// 第二个参数是模版包在这个 embed.FS 里的哪个子目录
+tpl := hgmPromptTpl.MustNewFromEmbedFS(promptFS, "prompt")
 ```
 
 跟 `NewFromDir` 的区别只有「文件从哪来」，建包检查一个字都不差，渲染出来的字节也一样。

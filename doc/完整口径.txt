@@ -272,7 +272,7 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
 
   // 建包 = 解析 + 全部静态检查, 见上一节。三条路只差「文件从哪来」, 检查一个字都不差
   tpl, err := hgmPromptTpl.NewFromDir("./example/prompt")       // 从磁盘目录读
-  tpl, err := hgmPromptTpl.NewFromFS(promptFS, "prompt")        // 从 fs.FS 读, 见七之三
+  tpl, err := hgmPromptTpl.NewFromEmbedFS(promptFS, "prompt")        // 从 //go:embed 的 embed.FS 读, 见七之三
   tpl, err := hgmPromptTpl.NewFromMap(map[string][]byte{...})   // 自己拼一份, 测试用
 
   ep, err := tpl.GetEp("找bug.ep.txt")   // 路径不是入口文件 / 不存在, 在这里报
@@ -293,7 +293,7 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   error 本身, 报错内容一个字都不变, recover 之后能直接拿去判断和打印:
 
       tpl  := hgmPromptTpl.MustNewFromDir("./example/prompt")
-      tpl  := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
+      tpl  := hgmPromptTpl.MustNewFromEmbedFS(promptFS, "prompt")
       ep   := tpl.MustGetEp("找bug.ep.txt")
       text := ep.MustRender(map[string]string{...})
 
@@ -310,7 +310,7 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
 
   另外这几个也是导出的:
   fileMap, err := hgmPromptTpl.ScanDir(dir)        // NewFromDir 内部就是它, 规矩见第八节
-  fileMap, err := hgmPromptTpl.ScanFS(fsys, dir)   // NewFromFS 内部就是它, 规矩见八之二
+  fileMap, err := hgmPromptTpl.ScanEmbedFS(promptFS, dir)   // NewFromEmbedFS 内部就是它, 规矩见八之二
   hgmPromptTpl.EpSuffix                       // ".ep.txt"
   hgmPromptTpl.PartSuffix                     // ".part.txt"
   hgmPromptTpl.RawSuffix                      // ".raw.txt"
@@ -396,14 +396,14 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
 七之三. 把模版包编译进二进制(embed)
 ------------------------------------
 
-  模版包是本程序自己的一部分时, 用 //go:embed 收进来, 走 NewFromFS:
+  模版包是本程序自己的一部分时, 用 //go:embed 收进来, 走 NewFromEmbedFS:
 
       import "embed"
 
       //go:embed prompt
       var promptFS embed.FS
 
-      tpl := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
+      tpl := hgmPromptTpl.MustNewFromEmbedFS(promptFS, "prompt")
 
   跟 NewFromDir 的区别只有「文件从哪来」, 建包检查一个字都不差, 渲染出来的字节也一样
   (example/main.go 里的 demoEmbed 就是当场把两条路的渲染结果对了一遍)。
@@ -425,8 +425,9 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   另一条不是本引擎的规矩、但会咬人的: //go:embed prompt 这种写法收不到以 . 或 _ 开头的
   文件和目录, 那是 embed 自己的规矩。模版文件别那么起名, 真要收得写 //go:embed prompt/*。
 
-  NewFromFS 收的是 fs.FS 不是 embed.FS, 所以 os.DirFS(dir)、测试里的 fstest.MapFS、
-  zip 包里的 fs 都能直接喂进来。
+  收的就是 embed.FS 这个具体类型, 不是 fs.FS 接口: 这条路要解决的是「模版包编译进二进制」
+  这一件事, 写成接口只会让人以为随便什么 fs 都该喂进来。别处的文件系统走 NewFromDir,
+  自己拼的走 NewFromMap。
 
 
 八. ScanDir 扫目录的规矩
@@ -452,21 +453,20 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   引擎不额外做环检测, 靠这个。
 
 
-八之二. ScanFS 扫 fs.FS 的规矩
--------------------------------
+八之二. ScanEmbedFS 扫 embed.FS 的规矩
+--------------------------------------
 
-  ScanFS(fsys, dir) 跟 ScanDir 干的是同一件事, 只是文件从一个 fs.FS 里读, 不碰进程的
-  当前工作目录。NewFromFS 内部就是它。收哪些文件、目录项类型怎么判、扫出来的 key 长什么样,
-  跟 ScanDir 完全一致。
+  ScanEmbedFS(fsys, dir) 跟 ScanDir 干的是同一件事, 只是文件从一个 //go:embed 进来的
+  embed.FS 里读, 运行时一个文件都不碰。NewFromEmbedFS 内部就是它。
+  收哪些文件、扫出来的 key 长什么样, 跟 ScanDir 完全一致。
 
-  dir 是模版包在 fsys 里的哪个子目录, 路径按 fs.FS 那一套: 分隔符固定 /, 不许 ./、../、
+  dir 是模版包在 fsys 里的哪个子目录, 路径按 embed.FS 那一套: 分隔符固定 /, 不许 ./、../、
   开头的 /、结尾的 /, fsys 的根目录写 "."。不合法当场报错, 不去猜。
   为什么这个参数少不了、传 "." 会怎样, 见七之三。
 
-  symlink 那套要看 fsys 自己怎么实现, 本引擎不额外规定:
-     embed.FS   编译期就是一堆字节, 根本没有 symlink 这回事, 那几条都不适用。
-     os.DirFS   跟 ScanDir 一样会跟随, 断链一样当场报错。
-  ScanFS 走的是 fs.Stat 而不是目录项自带的类型, 就是为了这条 —— 两条路的行为得是一样的。
+  第八节那套 symlink 规矩在这里一条都不适用, 也不需要: embed.FS 是编译期收进来的一堆字节,
+  里面只可能有目录和普通文件 —— 没有 symlink, 没有断链, 也没有设备文件。所以这条路直接信
+  目录项自带的类型, 不像 ScanDir 那样还要 stat 一次去解引用。
 
 
 九. 刻意不做的事

@@ -62,12 +62,12 @@ main.go 里那几段的用意
                        {{targetIp}}(本程序只有 linuxIp), 启动时就在这里拦下。
 
   demoEmbed            第二条加载路径: 同一个模版包用 //go:embed 收进二进制, 走
-                       MustNewFromFS 建包, 运行时一个文件都不读。它当场把两条路渲染出来
+                       MustNewFromEmbedFS 建包, 运行时一个文件都不读。它当场把两条路渲染出来
                        的字节对了一遍, 打出来那行 true 就是结果 —— 建包检查和渲染结果
                        跟 NewFromDir 一个字都不差, 区别只有「文件从哪来」。
                        模版包是本程序自己一部分的时候用它: 部署不用另外带 prompt 目录,
                        路径也跟进程的当前工作目录无关。代价是改一个字都得重新编译。
-                       ★ NewFromFS 的第二个参数传 "prompt" 不是 ".": //go:embed prompt
+                       ★ NewFromEmbedFS 的第二个参数传 "prompt" 不是 ".": //go:embed prompt
                           收进来的路径带着 prompt/ 这一层, 传 "." 的话包里的文件名就成了
                           prompt/写周报.ep.txt, 模版里那些 include 会全对不上。
 

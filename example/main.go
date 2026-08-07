@@ -6,7 +6,7 @@
 //  1. NewFromDir 读一个模版包目录（prompt/ 底下那几个文件就是模版包）。
 //     建包这一步就把全部静态检查跑完了，建得出来的包就是检查通过的包
 //  2. 启动自检: 每个入口文件要哪些变量，问 Ep.GetVarNameList，看本程序是不是都填得上
-//  3. NewFromFS 走 //go:embed 那条路: 同一个模版包编译进二进制，运行时一个文件都不读
+//  3. NewFromEmbedFS 走 //go:embed 那条路: 同一个模版包编译进二进制，运行时一个文件都不读
 //  4. GetEp + Render 拿渲染结果，以及「varMap 的 key 集合必须完全一致」白送的那条 fail-closed。
 //     顺带演示 Must 版（MustGetEp / MustRender）跟带 err 的原版分别该用在哪
 //  5. 变量值来自不可信来源时调用方要自己做什么（引擎一概不管，见 doc/完整口径.txt 七之二）
@@ -76,7 +76,7 @@ func loadTpl(promptDir string) *hgmPromptTpl.Tpl {
 	return tpl
 }
 
-// demoEmbed 演示第二条加载路径: 模版包用 //go:embed 编译进二进制，用 MustNewFromFS 建包，
+// demoEmbed 演示第二条加载路径: 模版包用 //go:embed 编译进二进制，用 MustNewFromEmbedFS 建包，
 // 运行时一个文件都不读。建包检查跟 NewFromDir 那条路一个字都不差，渲染出来的字节也一样
 // （下面那行 true 就是当场对出来的）。
 //
@@ -91,7 +91,7 @@ func demoEmbed(diskTpl *hgmPromptTpl.Tpl, promptDir string) {
 	// 传 "." 的话包里的文件名就成了 prompt/写周报.ep.txt，模版里那些 include 全对不上。
 	// 用 Must 版是因为这两样（embed 进来的字节、写死的 "prompt"）都是编译期就定死的东西，
 	// 建不出来是发布前就该发现的问题，而且必然每次启动都失败。
-	embedTpl := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
+	embedTpl := hgmPromptTpl.MustNewFromEmbedFS(promptFS, "prompt")
 
 	// 这里手写一份固定的 varMap，不用 getVarValue：那边的 fileNameBlock 每次都随机包一层
 	// 定界符（wrapUntrusted），拿它对不出「两条路一致」这件事。

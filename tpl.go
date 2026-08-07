@@ -3,8 +3,8 @@
 package hgmPromptTpl
 
 import (
+	"embed"
 	"fmt"
-	"io/fs"
 	"sort"
 	"strings"
 )
@@ -90,35 +90,35 @@ func NewFromDir(dir string) (*Tpl, error) {
 	return NewFromMap(fileMap)
 }
 
-// NewFromFS 从一个 fs.FS 里读模版包，跟 NewFromDir 的区别只有「文件从哪来」。
-// 最常见的来源是 embed.FS：
+// NewFromEmbedFS 从一个 //go:embed 进来的 embed.FS 里读模版包，跟 NewFromDir 的区别只有
+// 「文件从哪来」：
 //
 //	//go:embed prompt
 //	var promptFS embed.FS
 //
-//	tpl, err := hgmPromptTpl.NewFromFS(promptFS, "prompt")
+//	tpl, err := hgmPromptTpl.NewFromEmbedFS(promptFS, "prompt")
 //
 // 为什么要有这条路：embed 之后模版包是二进制的一部分，跟着程序走 —— 部署时不用另外带一个目录，
 // 也就不会出现「线上那份 prompt 目录被人顺手改了、跟代码里的 varMap 对不上」这种事；而且路径不再
 // 跟进程的当前工作目录有关（NewFromDir("example/prompt") 换个目录起进程就找不着了，
 // //go:embed 的路径是相对源文件的，编译期就定死）。代价是改提示词得重新编译。
 //
-// dir 是模版包在 fsys 里的哪个子目录，规矩和「为什么这个参数少不了」见 ScanFS。
+// dir 是模版包在 fsys 里的哪个子目录，规矩和「为什么这个参数少不了」见 ScanEmbedFS。
 // 建包检查照样在这一步全跑完，跟 NewFromDir 一个字都不差。
-func NewFromFS(fsys fs.FS, dir string) (*Tpl, error) {
-	fileMap, err := ScanFS(fsys, dir)
+func NewFromEmbedFS(fsys embed.FS, dir string) (*Tpl, error) {
+	fileMap, err := ScanEmbedFS(fsys, dir)
 	if err != nil {
 		return nil, err
 	}
 	return NewFromMap(fileMap)
 }
 
-// MustNewFromFS 跟 NewFromFS 一样，只是出错直接 panic，panic 出来的就是那个 error 本身。
+// MustNewFromEmbedFS 跟 NewFromEmbedFS 一样，只是出错直接 panic，panic 出来的就是那个 error 本身。
 //
-// 这个是三个 Must 版里最该用的一个：embed 进来的模版包是本程序自己的一部分，dir 又是代码里
+// 这个是几个 Must 版里最该用的一个：embed 进来的模版包是本程序自己的一部分，dir 又是代码里
 // 写死的字符串 —— 建不出来纯粹是发布前就该发现的问题，而且必然每次启动都失败。
-func MustNewFromFS(fsys fs.FS, dir string) *Tpl {
-	tpl, err := NewFromFS(fsys, dir)
+func MustNewFromEmbedFS(fsys embed.FS, dir string) *Tpl {
+	tpl, err := NewFromEmbedFS(fsys, dir)
 	if err != nil {
 		panic(err)
 	}
