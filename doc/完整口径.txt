@@ -1,5 +1,8 @@
-hgmPromptTpl —— AI 提示词模版引擎
-=============================
+hgmPromptTpl 完整口径
+=====================
+
+这份文件是本引擎的完整口径: 全部语法、全部报错条件、全部规矩。仓库根目录的 README.md
+是简版入口, 只讲最常用的那几件事; 拿不准某处到底怎么算的时候翻这里。
 
 只解决一件事: 几份 AI 提示词之间的信息复用。
 不是通用模版引擎, 不做条件、循环、函数、对象, 以后也不打算做。
@@ -10,8 +13,10 @@ hgmPromptTpl —— AI 提示词模版引擎
 AI 收到的规矩就是漂的。
 
 想直接看怎么用: example/ 是一份能跑的完整示例, 在仓库根目录 go run ./example,
-渲染结果和各种报错长什么样都会打出来。这份 readme 是完整口径,
+渲染结果和各种报错长什么样都会打出来。
 doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样的反例能推翻它」。
+
+下面提到的路径(example/main.go、doc/设计决策.md 之类)都是从仓库根目录算起的。
 
 
 一. 三种文件
@@ -92,7 +97,7 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
        int a[2][2] = {{1,2},{3,4}};   —— 写代码示例时最容易撞的一个
      * LaTeX 的嵌套花括号: {{\bf x}}
      * 双层嵌套的 JSON / 字典字面量: [{{"a":1}}]
-     * 要在提示词里教 AI 怎么写本引擎的模版(这份 readme 自己就是)
+     * 要在提示词里教 AI 怎么写本引擎的模版(这份文件自己就是)
   不确定的时候, 拿 {{ 这两个字符 grep 一遍自己要贴的正文就知道了。
 
 
@@ -265,9 +270,10 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
 
   import "github.com/hgmGoLib/hgmPromptTpl"
 
-  // 建包 = 解析 + 全部静态检查, 见上一节
-  tpl, err := hgmPromptTpl.NewFromDir("./example/prompt")
-  tpl, err := hgmPromptTpl.NewFromMap(map[string][]byte{...})   // 测试和内嵌资源用
+  // 建包 = 解析 + 全部静态检查, 见上一节。三条路只差「文件从哪来」, 检查一个字都不差
+  tpl, err := hgmPromptTpl.NewFromDir("./example/prompt")       // 从磁盘目录读
+  tpl, err := hgmPromptTpl.NewFromFS(promptFS, "prompt")        // 从 fs.FS 读, 见七之三
+  tpl, err := hgmPromptTpl.NewFromMap(map[string][]byte{...})   // 自己拼一份, 测试用
 
   ep, err := tpl.GetEp("找bug.ep.txt")   // 路径不是入口文件 / 不存在, 在这里报
   tpl.GetEpList()        // 全部入口文件(按路径排序), 启动自检拿它遍历
@@ -283,10 +289,11 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   Ep 是自包含的: 它持有的是展开摊平之后的结果, 不回指 Tpl。拿到之后可以单独存着、
   传出去, 调用方不用同时抓着两个对象。
 
-  上面这三个都有 Must 版, 出错直接 panic —— panic 出来的就是那个 error 本身,
-  报错内容一个字都不变, recover 之后能直接拿去判断和打印:
+  建包、取入口文件、渲染这三步都有 Must 版, 出错直接 panic —— panic 出来的就是那个
+  error 本身, 报错内容一个字都不变, recover 之后能直接拿去判断和打印:
 
       tpl  := hgmPromptTpl.MustNewFromDir("./example/prompt")
+      tpl  := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
       ep   := tpl.MustGetEp("找bug.ep.txt")
       text := ep.MustRender(map[string]string{...})
 
@@ -302,7 +309,8 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   的那一类, panic 反而暴露得更早。
 
   另外这几个也是导出的:
-  fileMap, err := hgmPromptTpl.ScanDir(dir)   // NewFromDir 内部就是它, 规矩见第八节
+  fileMap, err := hgmPromptTpl.ScanDir(dir)        // NewFromDir 内部就是它, 规矩见第八节
+  fileMap, err := hgmPromptTpl.ScanFS(fsys, dir)   // NewFromFS 内部就是它, 规矩见八之二
   hgmPromptTpl.EpSuffix                       // ".ep.txt"
   hgmPromptTpl.PartSuffix                     // ".part.txt"
   hgmPromptTpl.RawSuffix                      // ".raw.txt"
@@ -385,6 +393,42 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   —— 权限、沙箱、审计。别把这一层当安全边界用。
 
 
+七之三. 把模版包编译进二进制(embed)
+------------------------------------
+
+  模版包是本程序自己的一部分时, 用 //go:embed 收进来, 走 NewFromFS:
+
+      import "embed"
+
+      //go:embed prompt
+      var promptFS embed.FS
+
+      tpl := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
+
+  跟 NewFromDir 的区别只有「文件从哪来」, 建包检查一个字都不差, 渲染出来的字节也一样
+  (example/main.go 里的 demoEmbed 就是当场把两条路的渲染结果对了一遍)。
+
+  好处两条:
+     * 部署时不用另外带一个 prompt 目录, 也就没有「线上那份被人顺手改了、跟代码里手写的
+       varMap 对不上」这回事。提示词跟代码一起进版本、一起发布。
+     * 路径跟进程的当前工作目录无关。//go:embed 的路径是相对源文件所在目录的, 编译期定死;
+       NewFromDir("example/prompt") 换个目录起进程就找不着了。
+  代价: 改一个字都得重新编译。想改完立刻看效果, 或者模版目录是运行时才知道的
+  (命令行、配置、用户给的目录), 那就还是用 NewFromDir。
+
+  ★ dir 这个参数别偷懒传 "." ★
+     //go:embed prompt 收进来的路径是带着 prompt/ 这一层的, dir 传 "." 的话包里的文件名
+     就成了 prompt/找bug.ep.txt。而文件名就是 include 里写的那个路径(第三节), 多这一层
+     前缀等于模版里所有 include 全对不上 —— 报的是「include 的目标文件不存在」, 得从那儿
+     反查回来。传 "prompt" 才对, 扫出来跟 ScanDir 一模一样。
+
+  另一条不是本引擎的规矩、但会咬人的: //go:embed prompt 这种写法收不到以 . 或 _ 开头的
+  文件和目录, 那是 embed 自己的规矩。模版文件别那么起名, 真要收得写 //go:embed prompt/*。
+
+  NewFromFS 收的是 fs.FS 不是 embed.FS, 所以 os.DirFS(dir)、测试里的 fstest.MapFS、
+  zip 包里的 fs 都能直接喂进来。
+
+
 八. ScanDir 扫目录的规矩
 -------------------------
 
@@ -406,6 +450,23 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
   symlink 指向自己的祖先目录: 不会无限递归。OS 在 16~32 层就用 ELOOP 打回来,
   实际表现是一条超长路径的 stat 报错(too many levels of symbolic links)。
   引擎不额外做环检测, 靠这个。
+
+
+八之二. ScanFS 扫 fs.FS 的规矩
+-------------------------------
+
+  ScanFS(fsys, dir) 跟 ScanDir 干的是同一件事, 只是文件从一个 fs.FS 里读, 不碰进程的
+  当前工作目录。NewFromFS 内部就是它。收哪些文件、目录项类型怎么判、扫出来的 key 长什么样,
+  跟 ScanDir 完全一致。
+
+  dir 是模版包在 fsys 里的哪个子目录, 路径按 fs.FS 那一套: 分隔符固定 /, 不许 ./、../、
+  开头的 /、结尾的 /, fsys 的根目录写 "."。不合法当场报错, 不去猜。
+  为什么这个参数少不了、传 "." 会怎样, 见七之三。
+
+  symlink 那套要看 fsys 自己怎么实现, 本引擎不额外规定:
+     embed.FS   编译期就是一堆字节, 根本没有 symlink 这回事, 那几条都不适用。
+     os.DirFS   跟 ScanDir 一样会跟随, 断链一样当场报错。
+  ScanFS 走的是 fs.Stat 而不是目录项自带的类型, 就是为了这条 —— 两条路的行为得是一样的。
 
 
 九. 刻意不做的事

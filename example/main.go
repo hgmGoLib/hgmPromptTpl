@@ -2,19 +2,21 @@
 //
 //	go run ./example
 //
-// 演示五件事:
+// 演示六件事:
 //  1. NewFromDir 读一个模版包目录（prompt/ 底下那几个文件就是模版包）。
 //     建包这一步就把全部静态检查跑完了，建得出来的包就是检查通过的包
 //  2. 启动自检: 每个入口文件要哪些变量，问 Ep.GetVarNameList，看本程序是不是都填得上
-//  3. GetEp + Render 拿渲染结果，以及「varMap 的 key 集合必须完全一致」白送的那条 fail-closed。
+//  3. NewFromFS 走 //go:embed 那条路: 同一个模版包编译进二进制，运行时一个文件都不读
+//  4. GetEp + Render 拿渲染结果，以及「varMap 的 key 集合必须完全一致」白送的那条 fail-closed。
 //     顺带演示 Must 版（MustGetEp / MustRender）跟带 err 的原版分别该用在哪
-//  4. 变量值来自不可信来源时调用方要自己做什么（引擎一概不管，见 readme.txt 七之二）
-//  5. 模版写错、变量表填错的时候报错长什么样；顺带演示正文里要原样写双花括号的两条路
+//  5. 变量值来自不可信来源时调用方要自己做什么（引擎一概不管，见 doc/完整口径.txt 七之二）
+//  6. 模版写错、变量表填错的时候报错长什么样；顺带演示正文里要原样写双花括号的两条路
 //     （包 here doc / 挪进 .raw.txt），以及 here doc 名字跟内容撞上时报什么
 package main
 
 import (
 	"crypto/rand"
+	"embed"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -25,11 +27,20 @@ import (
 	"github.com/hgmGoLib/hgmPromptTpl"
 )
 
+// promptFS 是同一个模版包的第二条来源: 编译期收进二进制。
+//
+// //go:embed 的路径是相对本源文件所在目录的，编译期就定死了 —— 所以不管进程从哪个目录起、
+// 有没有带上 prompt/ 这个目录，它都在。下面 demoEmbed 讲两条路各自该用在哪。
+//
+//go:embed prompt
+var promptFS embed.FS
+
 func main() {
 	promptDir := flag.String("dir", "example/prompt", "模版包目录")
 	flag.Parse()
 
 	tpl := loadTpl(*promptDir)
+	demoEmbed(tpl, *promptDir)
 	renderFindBug(tpl)
 	demoBadVarMap(tpl)
 	demoUntrustedValue()
@@ -63,6 +74,46 @@ func loadTpl(promptDir string) *hgmPromptTpl.Tpl {
 	fmt.Printf("  复用文件: %s\n", strings.Join(tpl.GetPartPathList(), " "))
 	fmt.Printf("  原样包含文件: %s\n\n", strings.Join(tpl.GetRawPathList(), " "))
 	return tpl
+}
+
+// demoEmbed 演示第二条加载路径: 模版包用 //go:embed 编译进二进制，用 MustNewFromFS 建包，
+// 运行时一个文件都不读。建包检查跟 NewFromDir 那条路一个字都不差，渲染出来的字节也一样
+// （下面那行 true 就是当场对出来的）。
+//
+// 什么时候该用它: 模版包是本程序自己的一部分（这个例子就是）。好处有两条 ——
+// 一是部署时不用另外带一个 prompt 目录，也就没有「线上那份被人顺手改了、跟代码里手写的
+// varMap 对不上」这回事；二是路径跟进程的当前工作目录无关，上面 loadTpl 那条走的是 -dir 参数，
+// 默认值 example/prompt 只有在仓库根目录起进程才找得着。代价是改一个字都得重新编译。
+// 什么时候该用 NewFromDir: 模版目录是运行时才知道的（命令行、配置、用户给的目录），
+// 或者就是要能改完立刻看效果、不想为一句提示词重新编译。
+func demoEmbed(diskTpl *hgmPromptTpl.Tpl, promptDir string) {
+	// dir 传 "prompt" 而不是 "."：//go:embed prompt 收进来的路径带着 prompt/ 这一层，
+	// 传 "." 的话包里的文件名就成了 prompt/写周报.ep.txt，模版里那些 include 全对不上。
+	// 用 Must 版是因为这两样（embed 进来的字节、写死的 "prompt"）都是编译期就定死的东西，
+	// 建不出来是发布前就该发现的问题，而且必然每次启动都失败。
+	embedTpl := hgmPromptTpl.MustNewFromFS(promptFS, "prompt")
+
+	// 这里手写一份固定的 varMap，不用 getVarValue：那边的 fileNameBlock 每次都随机包一层
+	// 定界符（wrapUntrusted），拿它对不出「两条路一致」这件事。
+	varMap := map[string]string{
+		"linuxIp":       "10.10.10.10",
+		"fileNameBlock": "* pkg/httpApi/user.go",
+	}
+	embedText := embedTpl.MustGetEp("写周报.ep.txt").MustRender(varMap)
+	diskText := diskTpl.MustGetEp("写周报.ep.txt").MustRender(varMap)
+
+	fmt.Printf("---- 同一个模版包，embed 进二进制的那份 ----\n")
+	fmt.Printf("  入口文件: %s\n", strings.Join(epPathList(embedTpl), " "))
+	fmt.Printf("  跟 %s 那份磁盘模版包渲染出来的字节一致: %v\n\n", promptDir, embedText == diskText)
+}
+
+// epPathList 把一个包里的入口文件路径列出来，只是为了打印。
+func epPathList(tpl *hgmPromptTpl.Tpl) []string {
+	pathList := []string{}
+	for _, ep := range tpl.GetEpList() {
+		pathList = append(pathList, ep.GetPath())
+	}
+	return pathList
 }
 
 // renderFindBug 渲染一个入口文件，并演示「key 集合必须完全一致」带来的 fail-closed。
@@ -165,7 +216,7 @@ func checkSingleLineValue(name string, value string) (string, error) {
 // 也就没法从数据区里「跳出来」接着写指令。
 //
 // 引擎自己不做这件事：随机化会让「同样的输入渲染出同样的字节」不成立，而那是
-// readme.txt 第五节的核心主张。所以这一步留给调用方。
+// doc/完整口径.txt 第五节的核心主张。所以这一步留给调用方。
 //
 // 最后一句实话：这只降低概率，挡不死。真正的边界是 AI 那一头能做什么——权限、沙箱、审计。
 func wrapUntrusted(text string) string {

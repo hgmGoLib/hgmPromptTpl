@@ -1,9 +1,10 @@
 // hgmPromptTpl 是给 AI 提示词用的极小模版引擎，只解决一件事：三份提示词之间的信息复用。
-// 完整语法和全部报错条件见同目录 readme.txt。
+// 完整语法和全部报错条件见 doc/完整口径.txt。
 package hgmPromptTpl
 
 import (
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 )
@@ -39,7 +40,7 @@ type Tpl struct {
 //
 // 建得出来的包就是检查通过的包：语法、include 指向、死文件、单调用者的小 part、
 // 一棵展开树里重复 include —— 全在这一步报完，一次全报不是遇到第一个就返回，
-// 每条都带「原始文件名:行号」。查了些什么见 readme.txt 第六节。
+// 每条都带「原始文件名:行号」。查了些什么见 doc/完整口径.txt 第六节。
 //
 // 这里不收变量名单：模版里用到哪些变量是模版自己说了算的事实，不是调用方声明的东西。
 // 拿 Ep.GetVarNameList() 问出来，照着填 Ep.Render 的 varMap。
@@ -80,13 +81,48 @@ func NewFromMap(fileMap map[string][]byte) (*Tpl, error) {
 	return tpl, nil
 }
 
-// NewFromDir 扫描一个实体目录建模版包，只收 .ep.txt 和 .part.txt。
+// NewFromDir 扫描一个实体目录建模版包，只收 .ep.txt、.part.txt 和 .raw.txt。
 func NewFromDir(dir string) (*Tpl, error) {
 	fileMap, err := ScanDir(dir)
 	if err != nil {
 		return nil, err
 	}
 	return NewFromMap(fileMap)
+}
+
+// NewFromFS 从一个 fs.FS 里读模版包，跟 NewFromDir 的区别只有「文件从哪来」。
+// 最常见的来源是 embed.FS：
+//
+//	//go:embed prompt
+//	var promptFS embed.FS
+//
+//	tpl, err := hgmPromptTpl.NewFromFS(promptFS, "prompt")
+//
+// 为什么要有这条路：embed 之后模版包是二进制的一部分，跟着程序走 —— 部署时不用另外带一个目录，
+// 也就不会出现「线上那份 prompt 目录被人顺手改了、跟代码里的 varMap 对不上」这种事；而且路径不再
+// 跟进程的当前工作目录有关（NewFromDir("example/prompt") 换个目录起进程就找不着了，
+// //go:embed 的路径是相对源文件的，编译期就定死）。代价是改提示词得重新编译。
+//
+// dir 是模版包在 fsys 里的哪个子目录，规矩和「为什么这个参数少不了」见 ScanFS。
+// 建包检查照样在这一步全跑完，跟 NewFromDir 一个字都不差。
+func NewFromFS(fsys fs.FS, dir string) (*Tpl, error) {
+	fileMap, err := ScanFS(fsys, dir)
+	if err != nil {
+		return nil, err
+	}
+	return NewFromMap(fileMap)
+}
+
+// MustNewFromFS 跟 NewFromFS 一样，只是出错直接 panic，panic 出来的就是那个 error 本身。
+//
+// 这个是三个 Must 版里最该用的一个：embed 进来的模版包是本程序自己的一部分，dir 又是代码里
+// 写死的字符串 —— 建不出来纯粹是发布前就该发现的问题，而且必然每次启动都失败。
+func MustNewFromFS(fsys fs.FS, dir string) *Tpl {
+	tpl, err := NewFromFS(fsys, dir)
+	if err != nil {
+		panic(err)
+	}
+	return tpl
 }
 
 // MustNewFromDir 跟 NewFromDir 一样，只是出错直接 panic，panic 出来的就是那个 error 本身
