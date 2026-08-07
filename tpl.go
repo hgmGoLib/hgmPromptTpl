@@ -112,7 +112,8 @@ func NewFromDir(dir string) (*Tpl, error) {
 // 报出来是「include 的目标文件不存在」，还得从那儿反查回来。传 "prompt" 才对。
 //
 // 另外 //go:embed 自己有条规矩跟本引擎无关但会咬人：//go:embed prompt 这种写法收不到以 .
-// 或 _ 开头的文件和目录。模版文件别那么起名，真要收就写 //go:embed prompt/*。
+// 或 _ 开头的文件和目录。模版文件别那么起名 —— 改写成 //go:embed prompt/* 只解决第一层，
+// 它收得到 prompt/.x，但 prompt/sub/.x 照样收不到。
 //
 // 建包检查照样在这一步全跑完，跟 NewFromDir 一个字都不差。
 func NewFromEmbedFS(fsys embed.FS, dir string) (*Tpl, error) {

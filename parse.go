@@ -300,7 +300,7 @@ func validateIncludePath(file string, line int, directive string, path string, w
 		return nil
 	}
 	// 后缀不对。这里分情况给具体建议而不是只说「后缀不对」：写错的人多半是拿混了两条指令，
-	// 直接告诉他该用哪条，比让他回去翻 readme 快。
+	// 直接告诉他该用哪条，比让他回去翻 doc/完整口径.txt 快。
 	switch {
 	case strings.HasSuffix(path, EpSuffix):
 		return fmt.Errorf("%s:%d: {{%s%s}} 想包含一个入口文件：入口文件只能被渲染，不能被包含", file, line, directive, path)

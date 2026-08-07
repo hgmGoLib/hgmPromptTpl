@@ -272,7 +272,7 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
 
   // 建包 = 解析 + 全部静态检查, 见上一节。三条路只差「文件从哪来」, 检查一个字都不差
   tpl, err := hgmPromptTpl.NewFromDir("./example/prompt")       // 从磁盘目录读
-  tpl, err := hgmPromptTpl.NewFromEmbedFS(promptFS, "prompt")        // 从 //go:embed 的 embed.FS 读, 见七之三
+  tpl, err := hgmPromptTpl.NewFromEmbedFS(promptFS, "prompt")   // 从 //go:embed 的 embed.FS 读, 见七之三
   tpl, err := hgmPromptTpl.NewFromMap(map[string][]byte{...})   // 自己拼一份, 测试用
 
   ep, err := tpl.GetEp("找bug.ep.txt")   // 路径不是入口文件 / 不存在, 在这里报
@@ -422,11 +422,13 @@ doc/设计决策.md 记的是「为什么是这样、代价是什么、什么样
      反查回来。传 "prompt" 才对, 扫出来跟 ScanDir 一模一样。
 
   另一条不是本引擎的规矩、但会咬人的: //go:embed prompt 这种写法收不到以 . 或 _ 开头的
-  文件和目录, 那是 embed 自己的规矩。模版文件别那么起名, 真要收得写 //go:embed prompt/*。
+  文件和目录, 那是 embed 自己的规矩。模版文件别那么起名。
+  改写成 //go:embed prompt/* 只解决第一层: 它收得到 prompt/.x, 但 prompt/sub/.x 照样收不到
+  —— * 匹配到子目录之后, 那棵子树仍然是按「整个目录」收的, 那条排除规矩在每一层都生效。
 
   收的就是 embed.FS 这个具体类型, 不是 fs.FS 接口: 这条路要解决的是「模版包编译进二进制」
   这一件事, 写成接口只会让人以为随便什么 fs 都该喂进来。别处的文件系统走 NewFromDir,
-  自己拼的走 NewFromMap。
+  自己拼的走 NewFromMap。为什么这么选、什么样的反例能推翻它, 见 doc/设计决策.md 第十二节。
 
 
 八. ScanDir 扫目录的规矩
