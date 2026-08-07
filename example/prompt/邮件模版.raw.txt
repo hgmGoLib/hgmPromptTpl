@@ -1,0 +1,9 @@
+{{define "row"}}
+  <tr><td>{{.Name}}</td><td>{{printf "%.2f" .Amount}}</td></tr>
+{{end}}
+
+<table>
+{{range .OrderList}}{{template "row" .}}{{end}}
+</table>
+
+{{if .HasMore}}还有 {{len .RestList}} 条没列出来{{end}}

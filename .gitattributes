@@ -1,0 +1,5 @@
+# 模版是「字节进字节出」的（readme.txt 第五节）：引擎不归一 CRLF，换行符统一交给 git 管。
+# 不这么设的话，Windows 上 checkout 出来的 .ep.txt 会带 CRLF，渲染结果跟 linux 上不一样。
+*.txt text eol=lf
+*.md text eol=lf
+*.go text eol=lf
