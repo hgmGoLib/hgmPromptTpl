@@ -45,8 +45,8 @@ text, err := ep.Render(map[string]string{
 })
 ```
 
-这三个都有 `Must` 版（`MustNewFromDir` / `MustGetEp` / `MustRender`），出错直接 panic，
-panic 出来的就是那个 error 本身，报错内容一个字不变。参数是代码里写死的就用 Must 版少一层缩进，
+这三个都有 `Must` 版（`MustNewFromDir` / `MustNewFromEmbedFS` / `MustGetEp` / `MustRender`），出错直接
+panic，panic 出来的就是那个 error 本身，报错内容一个字不变。参数是代码里写死的就用 Must 版少一层缩进，
 参数来自运行时（命令行、配置、用户给的目录）就用原版自己处理 err。
 
 变量名单只有一份，就是模版本身 —— 调用方不用再声明一遍拿去比对，也就不存在两份名单对不齐。
@@ -60,6 +60,31 @@ panic 出来的就是那个 error 本身，报错内容一个字不变。参数�
 ```
 go run ./example
 ```
+
+## 把模版包编译进二进制
+
+模版包是本程序自己的一部分时，用 `//go:embed` 收进来，走 `NewFromEmbedFS`（收的就是 `embed.FS`
+这个具体类型）：
+
+```go
+import "embed"
+
+//go:embed prompt
+var promptFS embed.FS
+
+// 第二个参数是模版包在这个 embed.FS 里的哪个子目录
+tpl := hgmPromptTpl.MustNewFromEmbedFS(promptFS, "prompt")
+```
+
+跟 `NewFromDir` 的区别只有「文件从哪来」，建包检查一个字都不差，渲染出来的字节也一样。
+换来两件事：部署时不用另外带一个 prompt 目录（也就没有「线上那份被人顺手改了、跟代码里手写的
+varMap 对不上」这回事），以及路径跟进程的当前工作目录无关（`//go:embed` 的路径相对源文件，
+编译期就定死）。代价是改一个字都得重新编译 —— 模版目录是运行时才知道的、或者就是要改完立刻看
+效果，那还是用 `NewFromDir`。
+
+**`dir` 别偷懒传 `"."`**：`//go:embed prompt` 收进来的路径带着 `prompt/` 这一层，传 `"."` 的话包里
+的文件名就成了 `prompt/找bug.ep.txt`，而文件名就是 include 里写的那个路径，模版里所有 include
+会全对不上。传 `"prompt"` 才对。
 
 ## 语法一共四条
 
@@ -105,13 +130,13 @@ here doc 那条唯一性不是风格检查，它让「引擎在你没想到的�
 
 * **提示词注入防护**。变量值一个字节都不加工，原样进最终提示词。值的来源不可信时，
   挡换行和控制字符、给多行数据包随机定界符，都是调用方自己的事——写法见
-  [example/main.go](example/main.go)，完整口径见 readme.txt 七之二。
+  [example/main.go](example/main.go)，完整口径见 [doc/完整口径.txt](doc/完整口径.txt) 七之二。
 * 条件、循环、对象、函数、变量定义、include 传参。
 * CRLF / BOM / 首尾空白的归一。字节进，字节出，换行符交给 git 管。
 
 ## 文档
 
-* [readme.txt](readme.txt) —— 完整口径：全部语法、全部报错条件、全部规矩
+* [doc/完整口径.txt](doc/完整口径.txt) —— 完整口径：全部语法、全部报错条件、全部规矩
 * [doc/设计决策.md](doc/设计决策.md) —— 为什么是这样、代价是什么、什么样的反例能推翻它
 * [example/](example/) —— 能跑的完整用法
 
